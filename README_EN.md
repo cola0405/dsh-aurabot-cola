@@ -23,12 +23,37 @@ A persona, a mood, and a memory of her own. She chats, sees images, sends voice 
 >
 > This is not another keyword-reply bot: every reply, every decision to join a conversation, every model choice, and every outgoing message is a pluggable module. Everything is off by default — **not a single message reaches QQ until you turn it on.**
 
+<img src="assets/qq-official-bot.png" alt="Panel: System → Connect → QQ official bot" width="860" />
+
+## 🆕 New: QQ official bot (1.3.0)
+
+Alongside SnowLuma / your own OneBot, Aurabot can now talk to QQ through the **official OpenAPI (bot.q.qq.com)**:
+
+- Scan the QR code with mobile QQ — pick an existing bot or create one on the spot, **AppID / AppSecret are filled in for you**, and the scanning account becomes the owner automatically;
+- No QQ client on your machine, no ToS risk;
+- Trade-offs come from the official API: openid only (no QQ number), group messages are received **only when she is @-mentioned**, and replies are time-limited (5 min / 5 messages in groups, 60 min / 4 in DMs).
+
+If you already have an AppID you can fill it in manually. See [“which connection to choose”](#-quick-start) for the comparison.
+
 ```
-QQ ⇄ SnowLuma (OneBot v11; or your existing bot) ⇄ Aurabot plugin ⇄ DSH sessions
-                                                       ├─ persona + mood + memory
-                                                       ├─ tools / hot-reloadable modules
-                                                       └─ web panel (DSH Web)
+QQ ⇄ SnowLuma / OneBot v11 / QQ official bot ⇄ Aurabot plugin ⇄ DSH sessions
+                                             ├─ persona + mood + memory
+                                             ├─ tools / hot-reloadable modules
+                                             └─ web panel (DSH Web)
 ```
+
+---
+
+## 🔄 Migrating from upstream Aurabot
+
+Already running upstream `dsh-aurabot-qq`? Four steps, and **memory, persona, allow-lists and chat logs come along** (the data directory stays `~/.dsh/plugins-data/aurabot`, the rename doesn't touch it).
+
+1. **Export a backup first**: panel → System → Backup → Create backup, download the zip (config, personas, memory store, chat logs)
+2. **Install this fork**: `dsh plugin --profile desktop add github:cola0405/dsh-aurabot-cola`, then restart DSH
+3. **Import the backup**: panel → System → Backup → pick the zip → import → restart once more
+4. **Scan to connect**: panel → System → Connect → “QQ official bot” → Generate QR code → scan with mobile QQ
+
+> Staying on SnowLuma / your own OneBot? Skip step 4 — after step 3 your existing connection, allow-lists and persona keep working.
 
 ---
 
