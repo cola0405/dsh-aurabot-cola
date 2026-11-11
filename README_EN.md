@@ -19,41 +19,18 @@ A persona, a mood, and a memory of her own. She chats, sees images, sends voice 
 
 > **Fork by [@cola0405](https://github.com/cola0405), package name `dsh-aurabot-cola`**: adds **QQ official bot** support (QR connect / official OpenAPI, no QQ client needed) on top of upstream `dsh-aurabot-qq` 1.2.1, from 1.3.0 onwards. The install commands below point at this fork; for the upstream original, swap `cola0405/dsh-aurabot-cola` for `aureth-labs/dsh-aurabot-qq`.
 
-> Aurabot turns the AI inside **DeepSeek Harness (DSH)** into someone with a QQ account: her own persona, moods, a long-term memory of your chats, and a personality that shows in every reply. She can follow group conversations, send voice notes, sing with her own voice, keep a Qzone diary, and browse Bilibili.
->
-> This is not another keyword-reply bot: every reply, every decision to join a conversation, every model choice, and every outgoing message is a pluggable module. Everything is off by default — **not a single message reaches QQ until you turn it on.**
-
 <img src="assets/qq-official-bot.png" alt="Panel: System → Connect → QQ official bot" width="860" />
 
-## 🆕 New: QQ official bot (1.3.0)
+> New “QQ official bot” connection: scan once with mobile QQ and you're connected — the AppID / AppSecret come back from the official page, the scanning account becomes the owner, and there's no QQ client to keep online (and no ban risk).
 
-Alongside SnowLuma / your own OneBot, Aurabot can now talk to QQ through the **official OpenAPI (bot.q.qq.com)**:
+## 🔄 Migration steps (read this first!)
 
-- Scan the QR code with mobile QQ — pick an existing bot or create one on the spot, **AppID / AppSecret are filled in for you**, and the scanning account becomes the owner automatically;
-- No QQ client on your machine, no ToS risk;
-- Trade-offs come from the official API: openid only (no QQ number), group messages are received **only when she is @-mentioned**, and replies are time-limited (5 min / 5 messages in groups, 60 min / 4 in DMs).
+Already running upstream `dsh-aurabot-qq`? Four steps, and **memory, persona, allow-lists and chat logs all come along**.
 
-If you already have an AppID you can fill it in manually. See [“which connection to choose”](#-quick-start) for the comparison.
-
-```
-QQ ⇄ SnowLuma / OneBot v11 / QQ official bot ⇄ Aurabot plugin ⇄ DSH sessions
-                                             ├─ persona + mood + memory
-                                             ├─ tools / hot-reloadable modules
-                                             └─ web panel (DSH Web)
-```
-
----
-
-## 🔄 Migrating from upstream Aurabot
-
-Already running upstream `dsh-aurabot-qq`? Four steps, and **memory, persona, allow-lists and chat logs come along** (the data directory stays `~/.dsh/plugins-data/aurabot`, the rename doesn't touch it).
-
-1. **Export a backup first**: panel → System → Backup → Create backup, download the zip (config, personas, memory store, chat logs)
-2. **Install this fork**: `dsh plugin --profile desktop add github:cola0405/dsh-aurabot-cola`, then restart DSH
-3. **Import the backup**: panel → System → Backup → pick the zip → import → restart once more
-4. **Scan to connect**: panel → System → Connect → “QQ official bot” → Generate QR code → scan with mobile QQ
-
-> Staying on SnowLuma / your own OneBot? Skip step 4 — after step 3 your existing connection, allow-lists and persona keep working.
+1. **Export a backup first**: old version → panel → System → Backup → Create backup, download the zip (config, personas, memory store, chat logs)
+2. **Install this plugin**: paste `github:cola0405/dsh-aurabot-cola` into the DSH “add plugin” box, then restart DSH
+3. **Import the backup**: panel → System → Backup → pick that zip → import → restart once more
+4. **Scan to connect QQ**: panel → System → Connect → “QQ official bot” → Generate QR code → confirm on mobile QQ
 
 ---
 
