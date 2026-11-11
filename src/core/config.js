@@ -24,9 +24,17 @@ export const DEFAULTS = {
   // 定时任务这类没人应答的场合，只有打开这个开关才允许派活。关着 = 一律拒绝（一审 #177 的审批策略）。
   subagentBackground: false,
   allow: { private: [], groups: [] }, // 主人永远能私聊，不用写进白名单
-  // 用什么接 QQ：snowluma = 插件帮你管 SnowLuma（Windows）；onebot = 接你已有的 OneBot v11 机器人（NapCat、LLOneBot、Lagrange、Docker 里的 SnowLuma……），
-  // 这时只按下面 snowluma.httpUrl / wsUrl / token 去连，不启动、不注入任何东西
+  // 用什么接 QQ：snowluma = 插件帮你管 SnowLuma（Windows）；onebot = 接你已有的 OneBot v11 机器人（NapCat、LLOneBot、Lagrange、Docker 里的 SnowLuma……）；
+  // qqbot = 接 QQ 官方机器人（bot.q.qq.com，QQ 开放平台发的 AppID / AppSecret），这时只走官方 OpenAPI。
   gateway: 'snowluma',
+  // QQ 官方机器人（api-v2）：填开放平台的 AppID / AppSecret。
+  // 官方机器人没有 QQ 号，只有 openid —— 所以「主人 QQ 号」那一栏在 qqbot 模式下存的是主人的 openid，
+  // 白名单同理。面板里的「配对码」流程就是用来把某个 openid 认成主人的。
+  qqbot: {
+    appId: '',
+    appSecret: '',
+    intents: 33554432, // GROUP_AND_C2C_EVENT(1<<25)：群聊 @ 我和单聊消息
+  },
   workspaceDir: '', // QQ 会话放在哪个文件夹（DSH 里的「Aurabot · QQ」工作区）；留空 = 默认（用户目录下 Aurabot\\qq-chats）
   // 发文件（#52）：默认开但限制很多——她只能把 QQ 工作区（workspaceDir）和 dirs 里列的目录中的文件当文件发出去；
   // 单个文件有大小上限；主人私聊里能触发，群里只在主人开口那一轮能触发（可以发给白名单里的人和群）。日志里会记下发了什么。
@@ -297,6 +305,8 @@ const num = (v, d, lo, hi) => {
 const bool = (v, d) => (typeof v === 'boolean' ? v : d)
 const qq = (v) => String(v ?? '').replace(/\D/g, '')
 const qqList = (v) => [...new Set((Array.isArray(v) ? v : String(v || '').split(/[\s,，;；]+/)).map(qq).filter(Boolean))]
+// QQ 官方机器人用的是 openid（大小写字母 + 数字），不能按 QQ 号那样只留数字
+const idList = (v) => [...new Set((Array.isArray(v) ? v : String(v || '').split(/[\s,，;；]+/)).map((s) => String(s ?? '').trim()).filter(Boolean))]
 const hhmm = (v, d) => (/^\d{1,2}:\d{2}$/.test(String(v)) ? String(v) : d)
 // 严格校验 'YYYY-MM-DD'（面板手填/配置文件手改都可能乱），非法日期当没填。
 const dateKey = (v) => {
@@ -325,12 +335,21 @@ export function normalize(raw) {
   const c = deepMerge(DEFAULTS, raw)
   c.enabled = bool(c.enabled, false)
   c.dryRun = bool(c.dryRun, true)
-  c.botQQ = qq(c.botQQ)
-  c.ownerQQ = qq(c.ownerQQ)
+  c.gateway = c.gateway === 'onebot' ? 'onebot' : c.gateway === 'qqbot' ? 'qqbot' : 'snowluma'
+  // QQ 官方机器人：AppID 是纯数字，AppSecret 是密钥；没有 QQ 号可用，机器人身份就是 AppID
+  if (!isObj(c.qqbot)) c.qqbot = { ...DEFAULTS.qqbot }
+  c.qqbot.appId = qq(c.qqbot.appId)
+  c.qqbot.appSecret = String(c.qqbot.appSecret || '').trim()
+  c.qqbot.intents = Math.max(0, Math.trunc(Number(c.qqbot.intents) || DEFAULTS.qqbot.intents))
+  // 两种平台的「号」不是一回事：OneBot 是 QQ 号（纯数字），官方机器人是 openid（字母数字）。
+  // 为了让整套代码（白名单、主人判断、记忆里的 about）都不用改，这里统一成同一个字段：
+  // qqbot 模式下 ownerQQ 存的是主人的 openid，botQQ 直接用 AppID。
+  const openidMode = c.gateway === 'qqbot'
+  c.botQQ = openidMode ? c.qqbot.appId : qq(c.botQQ)
+  c.ownerQQ = openidMode ? String(c.ownerQQ || '').trim() : qq(c.ownerQQ)
   c.approvalNotify = bool(c.approvalNotify, true)
   c.approvalViaQQ = bool(c.approvalViaQQ, true)
   c.qqApi.enabled = bool(c.qqApi.enabled, true)
-  c.gateway = c.gateway === 'onebot' ? 'onebot' : 'snowluma'
   // 只认绝对路径（Windows 的 D:\\… 或 Linux 的 /…），别的当没填
   c.workspaceDir = String(c.workspaceDir || '').trim()
   if (c.workspaceDir && !/^([a-zA-Z]:[\\/]|\/)/.test(c.workspaceDir)) c.workspaceDir = ''
@@ -344,7 +363,9 @@ export function normalize(raw) {
   c.profilePerms = Object.fromEntries(PROFILE_PERM_KEYS.map((k) => [k, PROFILE_PERM_LEVELS.includes(c.profilePerms?.[k]) ? c.profilePerms[k] : profilePermDefault(k)]))
   // 旧版 douyinDm 是「回别人私信」的权限，含义已不同（现在是主动发私信），老配置一律回到默认「仅主人」
   if (isObj(raw?.profilePerms) && 'douyinDm' in raw.profilePerms) c.profilePerms.douyinDm = profilePermDefault('douyinDm')
-  c.allow = { private: qqList(c.allow.private), groups: qqList(c.allow.groups) }
+  c.allow = openidMode
+    ? { private: idList(c.allow.private), groups: idList(c.allow.groups) }
+    : { private: qqList(c.allow.private), groups: qqList(c.allow.groups) }
   // 发文件：开关、大小上限、额外允许的目录（只认绝对路径；空行忽略）
   if (!isObj(c.files)) c.files = {}
   if (!isObj(c.security)) c.security = {}
@@ -642,7 +663,7 @@ export function normalize(raw) {
 }
 
 // 面板里不回传原文的字段：路径（几层都行）
-const SECRETS = [['snowluma', 'webuiPassword'], ['snowluma', 'httpToken'], ['snowluma', 'wsToken'], ['imageGen', 'apiKey'], ['memory', 'vector', 'apiKey'], ['song', 'neteaseCookie'], ['bili', 'cookie'], ['bili', 'sessdata'], ['bili', 'biliJct'], ['heybox', 'cookie'], ['bridge', 'token']]
+const SECRETS = [['snowluma', 'webuiPassword'], ['snowluma', 'httpToken'], ['snowluma', 'wsToken'], ['qqbot', 'appSecret'], ['imageGen', 'apiKey'], ['memory', 'vector', 'apiKey'], ['song', 'neteaseCookie'], ['bili', 'cookie'], ['bili', 'sessdata'], ['bili', 'biliJct'], ['heybox', 'cookie'], ['bridge', 'token']]
 // 扩展模块设置里的密码类字段（模块加载时登记）：['ext', 模块id, 字段]
 const extraSecrets = new Map()
 export function registerSecretField(path) { extraSecrets.set(path.join('\u0000'), path) }

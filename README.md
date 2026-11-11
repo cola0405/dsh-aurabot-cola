@@ -7,7 +7,6 @@
 有人格、有心情、有记忆；能聊天、看图、发语音、发表情、唱歌、写空间、刷 B 站，还会主动找你。
 
 [English](README_EN.md) · **简体中文**
-
 [![release](https://img.shields.io/github/v/release/aureth-labs/dsh-aurabot-qq?include_prereleases&label=release&color=4a7dff)](https://github.com/aureth-labs/dsh-aurabot-qq/releases)
 [![license](https://img.shields.io/github/license/aureth-labs/dsh-aurabot-qq?color=3fb950)](LICENSE)
 [![DSH plugin](https://img.shields.io/badge/DeepSeek%20Harness-plugin-6a5acd)](https://github.com/deepseek-ai/deepseek-harness)
@@ -16,6 +15,8 @@
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](#-参与贡献)
 
 </div>
+
+> **这是 [@cola0405](https://github.com/cola0405/dsh-aurabot-qq) 的 fork**：在上游 1.2.1 基础上加了 **QQ 官方机器人**接入（扫码连接 / 官方 OpenAPI，不用挂 QQ 客户端），从 1.3.0 起。想装这份 fork 而不是上游，把下面安装命令里的 `aureth-labs` 换成 `cola0405`。
 
 > Aurabot 把 **DeepSeek Harness（DSH）** 里的 AI 变成一个有 QQ 号的「人」：独立人格、会生气会开心、记得住聊天里的细节、认识你的朋友，也能在群里接梗、发语音条、用自己的声音唱歌、给空间写日记、刷 B 站。
 >
@@ -62,31 +63,48 @@ QQ ⇄ SnowLuma（OneBot v11，你自己安装/已有机器人也行）⇄ Aurab
 
 ## 🚀 快速开始
 
-**你需要：** 一台能跑 DeepSeek Harness 的电脑（Windows 最省事）、一个当机器人的 QQ 小号、一个让机器人号上线的 QQ 网关（Windows 用 SnowLuma 最方便，Linux/Docker 用任何 OneBot v11 实现）。
+**你需要：** 一台能跑 DeepSeek Harness 的电脑（Windows 最省事）、一个当机器人的 QQ 小号、一个让机器人号上线的 QQ 网关（Windows 用 SnowLuma 最方便，Linux/Docker 用任何 OneBot v11 实现）。**不想挂客户端、要合规**的话，也可以用 QQ 官方机器人（QQ 开放平台的 AppID / AppSecret），代价见下面的「三种接法」。
 
 ### 1. 安装插件
 
 **Windows 桌面版：**
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:aureth-labs/dsh-aurabot-qq
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:cola0405/dsh-aurabot-qq
 ```
 
 **Linux / Docker（换成你在用的 profile；容器里就进容器执行）：**
 
 ```bash
-dsh plugin --profile <profile> add github:aureth-labs/dsh-aurabot-qq
+dsh plugin --profile <profile> add github:cola0405/dsh-aurabot-qq
 ```
+
+> 装上游原版就把 `cola0405` 换回 `aureth-labs`。
 
 装好后重启 DSH，左侧栏「自动化任务」下面会出现 **Aurabot**。
 
 ### 2. 跟着设置向导走
 
-1. 填机器人 QQ 号（小号）和你的 QQ 号
+1. 填机器人 QQ 号（小号）和你的 QQ 号（用 QQ 官方机器人时这一步不用填 QQ 号，下一步扫码就连上了）
 2. 选 QQ 网关：
    - **用 SnowLuma（Windows）**：下载解压 [SnowLuma](https://github.com/SnowLuma/SnowLuma/releases) → 启动 → 面板里本人同意它的协议（控制台密码自动生成）→ 登录机器人号 → 点「接入机器人号」
    - **接已有的 OneBot 机器人**：NapCat、LLOneBot、Lagrange、Docker 版 SnowLuma 都行；把正向 WebSocket 地址（和 token）填进向导即可，插件只连接、不启动
+   - **接 QQ 官方机器人**：手机 QQ 扫一下面板里的二维码，选一个已有机器人或新建，AppID / AppSecret 自动填好、连上，扫码那个号直接就是主人；已经拿到 AppID 的话也可以手动填
 3. 先试运行（只回话不真发），或者直接上线
+
+### 三种接法怎么选
+
+| | SnowLuma / 已有 OneBot | QQ 官方机器人 |
+|---|---|---|
+| 原理 | 模拟客户端协议（非官方） | 官方 OpenAPI + WebSocket |
+| 账号风险 | 有，建议小号 | 无，平台鼓励 |
+| 身份 | 真 QQ 号 | 只有 openid（没有 QQ 号，加不了好友，看不到群成员） |
+| 群聊 | 全部消息都收得到 | **只有 @ 她 的那条**收得到 |
+| 回复 | 随时能发 | 被动回复：群聊 5 分钟内 5 条 / 单聊 60 分钟内 4 条；超了只能发主动消息，用户可在机器人资料卡里关掉 |
+| 富媒体 | 图片、语音、文件随意 | 图片 / 语音 / 文件要先进官方上传接口，单文件 5 MB 以内（更大的分片上传还没接） |
+| 依赖客户端 | 要挂个 QQ | 不用，服务器上跑就行 |
+
+官方这条路上，靠 QQ 号才能做的事（改昵称头像、QQ 空间、收藏表情、戳一戳、看群成员、合并转发……）都会明确报「不支持」，不会假装成功。
 
 > **Linux / Docker 注意：** 语音要 `python3-venv` 或 [uv](https://docs.astral.sh/uv/)；翻唱（RVC）目前只支持 Windows；容器连宿主机/别的容器上的 OneBot，地址用容器能访问到的主机名和端口，别填 `127.0.0.1`。
 

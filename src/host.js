@@ -17,6 +17,9 @@ import { loadConfig, saveConfig, publicConfig, mergeFromPanel } from './core/con
 import { createLogger } from './core/logger.js'
 import { registerSecret, redact } from './core/redact.js'
 import { createOneBotClient } from './onebot/client.js'
+import { createQqBotClient } from './qqbot/client.js'
+import { qrSvgDataUrl } from './qqbot/qr.js'
+import { createBindTask, connectUrl, pollBindResult } from './qqbot/connect.js'
 import { createSnowLumaManager, DOWNLOAD_PAGE } from './snowluma/manager.js'
 import { createHub, workspaceDirOf } from './chat/hub.js'
 import { grantOwner, moveWorkspace, realWorkspace } from './core/workspace-move.js'
@@ -70,7 +73,9 @@ export function apply(ctx) {
   let bridge = null
   const getConfig = () => cfg
   setSsrpMode(() => (getConfig().security && getConfig().security.ssrfMode === 'loose' ? 'loose' : 'strict'))
-  const secrets = () => { for (const k of ['webuiPassword', 'httpToken', 'wsToken']) registerSecret(cfg.snowluma[k]); registerSecret(cfg.imageGen.apiKey); registerSecret(cfg.bridge.token) }
+  const secrets = () => { for (const k of ['webuiPassword', 'httpToken', 'wsToken']) registerSecret(cfg.snowluma[k]); registerSecret(cfg.qqbot.appSecret); registerSecret(cfg.imageGen.apiKey); registerSecret(cfg.bridge.token) }
+  // 换平台（SnowLuma / 已有 OneBot / QQ 官方机器人）要换的是整个客户端，由下面接上
+  let switchGateway = () => {}
   const setConfig = (next) => {
     const before = cfg
     cfg = saveConfig(next)
@@ -78,6 +83,13 @@ export function apply(ctx) {
     if (before.botQQ !== cfg.botQQ) {
       wrongAccount = ''
       if (onebotState === 'connected') onebot.restart()
+    }
+    if (before.gateway !== cfg.gateway) {
+      // 两个平台的「号」不通用（QQ 号 / openid）：明显不属于新平台的那份清掉，别留着当主人。
+      // 同一份保存里刚填对的不会被误清（openid 是 32 位十六进制，QQ 号是 5~11 位数字）。
+      const looksQQ = /^\d{5,11}$/.test(String(cfg.ownerQQ || ''))
+      if (cfg.ownerQQ && (cfg.gateway === 'qqbot' ? looksQQ : !looksQQ)) cfg = saveConfig({ ...cfg, ownerQQ: '' })
+      switchGateway(before.gateway, cfg.gateway)
     }
     secrets()
     if (bridge && before.bridge.dshTools !== cfg.bridge.dshTools) bridge.refresh()
@@ -165,6 +177,50 @@ export function apply(ctx) {
       verifying = false
     }
   }
+  // ---------- QQ 官方机器人：主人绑定 / 最近来过的会话 ----------
+  // 官方机器人没有 QQ 号，只能拿到 openid。面板点「生成配对码」→ 在 QQ 里把码发过来 → 这个 openid 就是主人。
+  let pendingPair = null // { code, at }
+  const seenChats = new Map() // 'group:xxx' → { kind, id, name, at, last }
+  const PAIR_TTL = 10 * 60_000
+
+  function textOfEvent(ev) {
+    if (!Array.isArray(ev?.message)) return ''
+    return ev.message.filter((seg) => seg && seg.type === 'text').map((seg) => String(seg.data?.text || '')).join('').trim()
+  }
+  function noteSeenChat(ev) {
+    if (cfg.gateway !== 'qqbot') return
+    const kind = ev.message_type === 'group' ? 'group' : 'private'
+    const id = String(kind === 'group' ? ev.group_id : ev.user_id)
+    if (!id) return
+    const key = `${kind}:${id}`
+    seenChats.set(key, {
+      kind,
+      id,
+      name: String(ev.sender?.card || ev.sender?.nickname || '') || (kind === 'group' ? '群' : 'QQ 用户'),
+      at: Date.now(),
+      last: textOfEvent(ev).slice(0, 40),
+    })
+    while (seenChats.size > 30) seenChats.delete(seenChats.keys().next().value)
+  }
+  function replyQuiet(scope, id, text) {
+    const action = scope === 'group' ? 'send_group_msg' : 'send_private_msg'
+    const params = scope === 'group' ? { group_id: id } : { user_id: id }
+    Promise.resolve()
+      .then(() => onebot.call(action, { ...params, message: [{ type: 'text', data: { text } }] }))
+      .catch((error) => log.warn('回绑定消息失败：', error.message))
+  }
+  function tryBindOwner(ev) {
+    if (!pendingPair || ev.message_type !== 'private') return false
+    if (Date.now() - pendingPair.at > PAIR_TTL) { pendingPair = null; return false }
+    if (textOfEvent(ev) !== pendingPair.code) return false
+    const openid = String(ev.user_id || '')
+    pendingPair = null
+    setConfig({ ...cfg, ownerQQ: openid })
+    log.info(`已把这个 openid 认成主人：${openid}`)
+    replyQuiet('private', openid, '绑定成功。我就是住在这里的大肥鱼，以后随时找我～')
+    return true
+  }
+
   /** 核对通过后的事件都在这里处理（onEvent 直接调，核对期间攒下的也会补到这里）。 */
   function handleEvent(ev) {
     if (!hub) return
@@ -172,6 +228,9 @@ export function apply(ctx) {
     mods?.emit('onebot', ev)
     if (ev.post_type === 'message' || ev.post_type === 'message_sent') {
       if (ev.post_type === 'message') {
+        // 官方机器人没有「QQ 号」可填：面板里点「生成配对码」，在 QQ 私聊里把码发过来，就认成主人
+        noteSeenChat(ev)
+        if (cfg.gateway === 'qqbot' && tryBindOwner(ev)) return
         // 危险命令确认：主人的「确认 / 取消」回复先在这里截住，不交给聊天中枢
         if (dangerGuard && ev.message_type === 'private') {
           const text = Array.isArray(ev.message)
@@ -192,28 +251,73 @@ export function apply(ctx) {
       hub.onNotice(ev).catch((error) => log.debug('处理通知出错：', error.message))
     }
   }
-  const onebot = createOneBotClient({
+  const onebotClient = createOneBotClient({
     endpoint,
     log: logger.child('onebot'),
-    onState: (s, d) => {
-      onebotState = s
-      if (s !== 'connected') { loginOk = false; pendingEvents = [] }
-      else checkLogin().catch((error) => log.warn('核对登录号出错：', error.message))
-      logger.child('onebot').info(`QQ 网关：${s}${d ? '（' + d + '）' : ''}`)
-      mods?.emit('onebot/state', s)
-    },
-    onEvent: (ev) => {
-      // 还没核对是机器人号：核对期间先攒着，核对通过后补处理
-      if (!loginOk) {
-        if (verifying) {
-          pendingEvents.push(ev)
-          if (pendingEvents.length > 200) pendingEvents.shift()
-        }
-        return
-      }
-      handleEvent(ev)
-    },
+    onState: (s, d) => { if (activeGateway() !== onebotClient) return; onGatewayState(s, d) },
+    onEvent: (ev) => { if (activeGateway() !== onebotClient) return; onGatewayEvent(ev) },
   })
+  // QQ 官方机器人（bot.q.qq.com）：和 OneBot 客户端同一套接口，底下走官方 OpenAPI
+  const qqbotClient = createQqBotClient({
+    getConfig,
+    log: logger.child('qqbot'),
+    onState: (s, d) => { if (activeGateway() !== qqbotClient) return; onGatewayState(s, d) },
+    onEvent: (ev) => { if (activeGateway() !== qqbotClient) return; onGatewayEvent(ev) },
+  })
+  const activeGateway = () => (cfg.gateway === 'qqbot' ? qqbotClient : onebotClient)
+  /**
+   * 上半边只认识「一个 QQ 网关」。这里按配置把调用转给当前平台：
+   * 换平台时只换壳，聊天中枢、模块、命令全都不用改。
+   */
+  const onebot = {
+    call: (action, params, opts) => activeGateway().call(action, params, opts),
+    start: () => activeGateway().start(),
+    stop: () => activeGateway().stop(),
+    restart: () => activeGateway().restart(),
+    /** 只有 QQ 官方机器人才有的：面板「测试连接」 */
+    probe: () => (activeGateway().probe ? activeGateway().probe() : null),
+    status: () => (activeGateway().status ? activeGateway().status() : null),
+    get state() { return activeGateway().state },
+    get platform() { return cfg.gateway === 'qqbot' ? 'qqbot' : 'onebot' },
+  }
+  switchGateway = (from, to) => {
+    if (from === to) return
+    wrongAccount = ''
+    loginOk = false
+    pendingEvents = []
+    onebotState = 'stopped'
+    onebotClient.stop()
+    qqbotClient.stop()
+    log.info(`QQ 网关换成 ${to}`)
+    if (cfg.enabled) setTimeout(() => { try { activeGateway().start() } catch (error) { log.warn('启动新网关失败：', error.message) } }, 100).unref?.()
+  }
+  function onGatewayState(s, d) {
+    onebotState = s
+    if (s !== 'connected') { loginOk = false; pendingEvents = [] }
+    else if (cfg.gateway === 'qqbot') {
+      // 官方机器人没有「登录的是不是机器人号」这回事：AppID 就是身份，连上即核对通过
+      loginOk = true
+      wrongAccount = ''
+      const queued = pendingEvents
+      pendingEvents = []
+      for (const ev of queued) handleEvent(ev)
+    } else {
+      checkLogin().catch((error) => log.warn('核对登录号出错：', error.message))
+    }
+    logger.child(cfg.gateway === 'qqbot' ? 'qqbot' : 'onebot').info(`QQ 网关：${s}${d ? '（' + d + '）' : ''}`)
+    mods?.emit('onebot/state', s)
+  }
+  function onGatewayEvent(ev) {
+    // 还没核对是机器人号：核对期间先攒着，核对通过后补处理
+    if (!loginOk) {
+      if (verifying) {
+        pendingEvents.push(ev)
+        if (pendingEvents.length > 200) pendingEvents.shift()
+      }
+      return
+    }
+    handleEvent(ev)
+  }
   const groupRoles = createGroupRoles({ onebot, getConfig, log: logger.child('chat') })
   const local = createLocal({ getConfig, log: logger })
   const mutes = createMutes()
@@ -718,7 +822,16 @@ export function apply(ctx) {
       version: VERSION,
       apiVersion: API_VERSION,
       config: publicConfig(cfg),
-      onebot: { state: onebotState, login, endpoint: { httpUrl: endpoint().httpUrl, wsUrl: endpoint().wsUrl }, problem: onebotState === 'connected' && loginOk ? '' : await connectionProblem() },
+      onebot: { state: onebotState, login, endpoint: { httpUrl: endpoint().httpUrl, wsUrl: endpoint().wsUrl }, provider: cfg.gateway === 'qqbot' ? 'qqbot' : cfg.gateway === 'onebot' ? 'onebot' : 'snowluma', problem: onebotState === 'connected' && loginOk ? '' : await connectionProblem() },
+      qqbot: {
+        appId: String(cfg.qqbot.appId || ''),
+        secretSet: Boolean(cfg.qqbot.appSecret),
+        ownerBound: Boolean(cfg.ownerQQ),
+        status: onebot.status?.() ?? null,
+        // 最近来过的会话：官方机器人只有 openid，白名单要靠这里挑
+        seen: cfg.gateway === 'qqbot' ? [...seenChats.values()].sort((a, b) => b.at - a.at) : [],
+        pairPending: Boolean(pendingPair) ? { expiresAt: pendingPair.at + PAIR_TTL } : null,
+      },
       snowluma: { ...inst, running, consented: await consented(running), owns: snowluma.ownsProcess, lastAttach: snowluma.lastAttach, downloadPage: DOWNLOAD_PAGE, webui: snowluma.webuiUrl() },
       stats: hub.stats(),
       // 模块关着时给个空壳，面板照常显示
@@ -791,6 +904,8 @@ export function apply(ctx) {
     let pw = null
     if (newPw && newPw !== before.snowluma.webuiPassword) pw = await snowluma.setPassword(newPw)
     const changedConn = before.gateway !== cfg.gateway || ['httpUrl', 'wsUrl', 'httpToken', 'wsToken', 'dir'].some((k) => before.snowluma[k] !== cfg.snowluma[k])
+      || before.qqbot.appId !== cfg.qqbot.appId || before.qqbot.appSecret !== cfg.qqbot.appSecret
+    if (before.qqbot.appId !== cfg.qqbot.appId || before.qqbot.appSecret !== cfg.qqbot.appSecret) qqbotClient.reset()
     // 换了模型：思考强度和「能不能看图」的探测结果都得重来，不然要等 10 分钟缓存过期
     const changedModel = before.model.provider !== cfg.model.provider || before.model.model !== cfg.model.model
     if (changedModel) { clearReasoningCache(); clearVisionCache() }
@@ -1228,6 +1343,13 @@ export function apply(ctx) {
   /** 连不上 QQ 网关时，按顺序找卡在哪一步，给一句人话。 */
   async function connectionProblem() {
     if (!cfg.enabled) return '总开关关着（右上角），打开后才会连'
+    if (cfg.gateway === 'qqbot') {
+      if (!cfg.qqbot.appId || !cfg.qqbot.appSecret) return '还没填 QQ 官方机器人的 AppID / AppSecret：去 QQ 开放平台（q.qq.com）拿到后填在「连接」页'
+      const st = onebot.status?.()
+      if (st?.lastError) return st.lastError
+      if (!cfg.ownerQQ) return '连上之前先用「配对码」认个主人：生成码 → 在 QQ 私聊里发给她'
+      return '没连上 QQ 开放平台：检查网络能不能访问 api.bot.qq.com，以及开放平台里机器人是否已上线'
+    }
     if (!cfg.botQQ) return '还没填机器人 QQ 号'
     if (cfg.gateway === 'onebot') {
       const ep = endpoint()
@@ -1256,6 +1378,12 @@ export function apply(ctx) {
     return { ok: false, message: '没连上：' + (await connectionProblem()) }
   })
   route('/onebot/test', async () => {
+    if (cfg.gateway === 'qqbot') {
+      // 官方机器人：验的是 AppID / AppSecret 和接入点，不是「登录的哪个号」
+      const r = await qqbotClient.probe()
+      if (r.ok && onebotState === 'connected') return { ok: true, message: '连上了：' + (onebot.status?.()?.botName || 'QQ 机器人') }
+      return { ok: false, message: r.ok ? 'AppID / AppSecret 没问题，但还没挂上 WebSocket：看「连接状态」里的提示' : r.message }
+    }
     try {
       const info = await onebot.call('get_login_info', {}, { timeoutMs: 8000 })
       const uin = String(info?.user_id ?? '')
@@ -1263,6 +1391,91 @@ export function apply(ctx) {
     } catch (error) {
       return { ok: false, message: error.message }
     }
+  })
+  // QQ 官方机器人：生成一次性配对码（在 QQ 私聊里发过来，就把那个 openid 认成主人）
+  route('/qqbot/pair', async () => {
+    if (cfg.gateway !== 'qqbot') return { ok: false, message: '先把「用什么接 QQ」换成 QQ 官方机器人' }
+    const code = String(Math.floor(100000 + Math.random() * 900000))
+    pendingPair = { code, at: Date.now() }
+    return { ok: true, code, expiresAt: pendingPair.at + PAIR_TTL, message: `在 QQ 里私聊机器人，把这 6 位数发过去：${code}（10 分钟内有效）` }
+  })
+  route('/qqbot/unbind', async () => {
+    setConfig({ ...cfg, ownerQQ: '' })
+    return { ok: true, message: '解绑了，重新用配对码认主人' }
+  })
+  // 扫码连接：手机 QQ 扫一下，官方把机器人的 AppID / AppSecret 交过来，扫码那个人自动成为主人
+  const bindTasks = new Map() // taskId → { key, at }
+  const BIND_TTL = 5 * 60_000
+  route('/qqbot/qr/start', async () => {
+    try {
+      const { taskId, key } = await createBindTask()
+      bindTasks.set(taskId, { key, at: Date.now() })
+      for (const [id, v] of bindTasks) if (Date.now() - v.at > BIND_TTL) bindTasks.delete(id)
+      const url = connectUrl(taskId)
+      return { ok: true, taskId, url, qr: qrSvgDataUrl(url, { size: 200 }) }
+    } catch (error) {
+      return { ok: false, message: error.message }
+    }
+  })
+  route('/qqbot/qr/poll', async (req) => {
+    const body = await readBody(req)
+    const taskId = String(body?.taskId || '')
+    const task = bindTasks.get(taskId)
+    if (!task) return { ok: false, status: 'unknown', message: '这个二维码不能用了，重新生成一个' }
+    let r
+    try {
+      r = await pollBindResult(taskId, task.key)
+    } catch (error) {
+      return { ok: true, status: 'waiting', scanned: false, message: error.message }
+    }
+    if (r.status === 3) {
+      bindTasks.delete(taskId)
+      return { ok: true, status: 'expired' }
+    }
+    if (r.status !== 2) return { ok: true, status: 'waiting', scanned: r.status === 1 }
+    bindTasks.delete(taskId)
+    if (!r.appId || !r.appSecret) return { ok: false, status: 'error', message: '扫码成功了，但没拿到 AppID / AppSecret' }
+    const owner = String(r.userOpenid || '')
+    setConfig({
+      ...cfg,
+      gateway: 'qqbot',
+      qqbot: { ...cfg.qqbot, appId: r.appId, appSecret: r.appSecret },
+      ...(owner ? { ownerQQ: owner } : {}),
+    })
+    qqbotClient.reset()
+    log.info(`扫码连上机器人：AppID ${r.appId}${owner ? `，主人 openid ${owner}` : ''}`)
+    if (cfg.enabled) {
+      if (onebotState === 'stopped') onebot.start()
+      else onebot.restart()
+    }
+    return { ok: true, status: 'done', appId: r.appId, owner }
+  })
+
+  // 扫码添加：官方 /v2/generate_url_link 给的分享链接，手机 QQ 扫一下就能加好友 / 拉进群
+  let shareCache = { key: '', at: 0, url: '' }
+  route('/qqbot/share', async (req) => {
+    const body = await readBody(req)
+    if (!cfg.qqbot.appId || !cfg.qqbot.appSecret) return { ok: false, message: '先填 AppID / AppSecret 并保存' }
+    const key = String(cfg.qqbot.appId || '')
+    try {
+      if (!shareCache.url || shareCache.key !== key || Date.now() - shareCache.at > 10 * 60_000) {
+        shareCache = { key, at: Date.now(), url: await qqbotClient.shareLink(String(body?.data || '')) }
+      }
+      return { ok: true, url: shareCache.url, qr: qrSvgDataUrl(shareCache.url, { size: 200 }), message: '用手机 QQ 扫码' }
+    } catch (error) {
+      return { ok: false, message: error.message }
+    }
+  })
+
+  // 把「最近来过的会话」一键加进白名单（官方机器人只有 openid，手抄太容易错）
+  route('/qqbot/allow', async (req) => {
+    const body = await readBody(req)
+    const key = body?.kind === 'group' ? 'groups' : 'private'
+    const id = String(body?.id || '').trim()
+    if (!id) return { ok: false, message: '没有这个会话' }
+    const list = [...new Set([...(cfg.allow[key] || []).map(String), id])]
+    setConfig({ ...cfg, allow: { ...cfg.allow, [key]: list } })
+    return { ok: true, message: `加进${key === 'groups' ? '群' : '私聊'}白名单了` }
   })
   route('/test-send', async () => {
     if (!cfg.enabled) return { ok: false, message: '先打开总开关' }

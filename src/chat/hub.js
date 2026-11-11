@@ -600,6 +600,10 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     return kind === 'group' ? { kind: 'group', id } : kind === 'private' ? { kind: 'private', id } : null
   }
 
+  // 会话 id 可能是 QQ 号（纯数字），也可能是 QQ 官方机器人的 openid（32 位十六进制，可能是纯数字）。
+  // QQ 号照旧传数字（老的 OneBot 网关认这个）；官方机器人一律传字符串，免得大整数被 Number 削掉精度。
+  const idOf = (v) => (getConfig().gateway === 'qqbot' || !/^\d+$/.test(String(v)) ? String(v) : Number(v))
+
   // quiet：这一条是额外的（比如语音后面补发的表情），失败了不算到这一轮头上（deliver 按 failStore 里的条数判断整条有没有发出去）。
   async function sendSegments(chatId, message, note, { force = false, isCurrent = null, throwOnError = false, timeoutMs, quiet = false } = {}) {
     if (disposed) return null
@@ -640,7 +644,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     }
     const action = tgt.kind === 'group' ? 'send_group_msg' : 'send_private_msg'
     const sourceGroupId = tgt.kind === 'private' ? privateSources.get(tgt.id) : ''
-    const params = tgt.kind === 'group' ? { group_id: Number(tgt.id), message } : { user_id: Number(tgt.id), ...(sourceGroupId ? { group_id: Number(sourceGroupId) } : {}), message }
+    const params = tgt.kind === 'group' ? { group_id: idOf(tgt.id), message } : { user_id: idOf(tgt.id), ...(sourceGroupId ? { group_id: idOf(sourceGroupId) } : {}), message }
     try {
       const r = await onebot.call(action, params, timeoutMs ? { timeoutMs } : undefined)
       if (r && r.message_id !== undefined) {
@@ -813,8 +817,8 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     if (cfg.dryRun) { log.info(`试运行（没真发）→ ${chatId}：[文件] ${label}`); return null }
     const action = tgt.kind === 'group' ? 'upload_group_file' : 'upload_private_file'
     const params = tgt.kind === 'group'
-      ? { group_id: Number(tgt.id), file: src, name: label }
-      : { user_id: Number(tgt.id), file: src, name: label }
+      ? { group_id: idOf(tgt.id), file: src, name: label }
+      : { user_id: idOf(tgt.id), file: src, name: label }
     const srcLabel = external ? (src.startsWith('base64://') ? 'base64' : '外部地址') : size < 1024 ? size + ' B' : Math.round(size / 1024) + ' KB'
     try {
       const r = await onebot.call(action, params, { timeoutMs: FILE_TIMEOUT_MS })
