@@ -16,11 +16,9 @@
 
 </div>
 
-> **这是 [@cola0405](https://github.com/cola0405) 的 fork，包名 `dsh-aurabot-cola`**：在上游 `dsh-aurabot-qq` 1.2.1 的基础上加了 **QQ 官方机器人**接入（扫码连接 / 官方 OpenAPI，不用挂 QQ 客户端），从 1.3.0 起。下面的安装命令已经指向这份 fork；想装上游原版就把 `cola0405/dsh-aurabot-cola` 换成 `aureth-labs/dsh-aurabot-qq`。
+> **这是 [@cola0405](https://github.com/cola0405) 的 fork，包名 `dsh-aurabot-cola`**：在上游 `dsh-aurabot-qq` 1.2.1 的基础上加了 **QQ 官方机器人**接入（扫码连接 / 官方 OpenAPI，不用挂 QQ 客户端）
 
 <img src="assets/qq-official-bot.png" alt="面板：系统 → 连接 → 接 QQ 官方机器人" width="860" />
-
-> 新增「接 QQ 官方机器人」：手机 QQ 扫码就连上，AppID / AppSecret 由官方直接带回来，扫码那个号就是主人；不用挂 QQ 客户端，也没有封号风险。
 
 ## 🔄 移植步骤（看这里！！！！）
 
