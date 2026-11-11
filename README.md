@@ -7,16 +7,16 @@
 有人格、有心情、有记忆；能聊天、看图、发语音、发表情、唱歌、写空间、刷 B 站，还会主动找你。
 
 [English](README_EN.md) · **简体中文**
-[![release](https://img.shields.io/github/v/release/aureth-labs/dsh-aurabot-qq?include_prereleases&label=release&color=4a7dff)](https://github.com/aureth-labs/dsh-aurabot-qq/releases)
-[![license](https://img.shields.io/github/license/aureth-labs/dsh-aurabot-qq?color=3fb950)](LICENSE)
+[![release](https://img.shields.io/github/v/release/cola0405/dsh-aurabot-qq-cola?include_prereleases&label=release&color=4a7dff)](https://github.com/cola0405/dsh-aurabot-qq-cola/releases)
+[![license](https://img.shields.io/github/license/cola0405/dsh-aurabot-qq-cola?color=3fb950)](LICENSE)
 [![DSH plugin](https://img.shields.io/badge/DeepSeek%20Harness-plugin-6a5acd)](https://github.com/deepseek-ai/deepseek-harness)
 [![QQ](https://img.shields.io/badge/QQ-SnowLuma%20%2F%20OneBot%20v11-12b7f5)](https://github.com/SnowLuma/SnowLuma)
-[![stars](https://img.shields.io/github/stars/aureth-labs/dsh-aurabot-qq?color=f5b301)](https://github.com/aureth-labs/dsh-aurabot-qq/stargazers)
+[![stars](https://img.shields.io/github/stars/cola0405/dsh-aurabot-qq-cola?color=f5b301)](https://github.com/cola0405/dsh-aurabot-qq-cola/stargazers)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](#-参与贡献)
 
 </div>
 
-> **这是 [@cola0405](https://github.com/cola0405/dsh-aurabot-qq) 的 fork**：在上游 1.2.1 基础上加了 **QQ 官方机器人**接入（扫码连接 / 官方 OpenAPI，不用挂 QQ 客户端），从 1.3.0 起。想装这份 fork 而不是上游，把下面安装命令里的 `aureth-labs` 换成 `cola0405`。
+> **这是 [@cola0405](https://github.com/cola0405) 的 fork，包名 `dsh-aurabot-qq-cola`**：在上游 `dsh-aurabot-qq` 1.2.1 的基础上加了 **QQ 官方机器人**接入（扫码连接 / 官方 OpenAPI，不用挂 QQ 客户端），从 1.3.0 起。下面的安装命令已经指向这份 fork；想装上游原版就把 `cola0405/dsh-aurabot-qq-cola` 换成 `aureth-labs/dsh-aurabot-qq`。
 
 > Aurabot 把 **DeepSeek Harness（DSH）** 里的 AI 变成一个有 QQ 号的「人」：独立人格、会生气会开心、记得住聊天里的细节、认识你的朋友，也能在群里接梗、发语音条、用自己的声音唱歌、给空间写日记、刷 B 站。
 >
@@ -70,16 +70,16 @@ QQ ⇄ SnowLuma（OneBot v11，你自己安装/已有机器人也行）⇄ Aurab
 **Windows 桌面版：**
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:cola0405/dsh-aurabot-qq
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:cola0405/dsh-aurabot-qq-cola
 ```
 
 **Linux / Docker（换成你在用的 profile；容器里就进容器执行）：**
 
 ```bash
-dsh plugin --profile <profile> add github:cola0405/dsh-aurabot-qq
+dsh plugin --profile <profile> add github:cola0405/dsh-aurabot-qq-cola
 ```
 
-> 装上游原版就把 `cola0405` 换回 `aureth-labs`。
+> 装上游原版就把 `cola0405/dsh-aurabot-qq-cola` 换成 `aureth-labs/dsh-aurabot-qq`。
 
 装好后重启 DSH，左侧栏「自动化任务」下面会出现 **Aurabot**。
 
@@ -188,14 +188,14 @@ dsh plugin --profile <profile> add github:cola0405/dsh-aurabot-qq
 <details>
 <summary><b>装不上/报错怎么办？</b></summary>
 
-带上面板「日志」里的报错和版本号来 QQ 群问（见下方二维码），或到 [GitHub issue](https://github.com/aureth-labs/dsh-aurabot-qq/issues) 反馈。
+带上面板「日志」里的报错和版本号来 QQ 群问（见下方二维码），或到 [GitHub issue](https://github.com/cola0405/dsh-aurabot-qq-cola/issues) 反馈。
 </details>
 
 ## 🧑💻 开发
 
 ```bash
-git clone https://github.com/aureth-labs/dsh-aurabot-qq.git
-cd dsh-aurabot-qq
+git clone https://github.com/cola0405/dsh-aurabot-qq-cola.git
+cd dsh-aurabot-qq-cola
 npm test        # 单元测试 + 假 DSH 宿主/模拟 OneBot 的端到端测试
 ```
 
@@ -221,8 +221,8 @@ test/                  单元测试 + 端到端测试
 
 欢迎 issue 和 PR！
 
-- **报 bug / 提需求**：[新建 issue](https://github.com/aureth-labs/dsh-aurabot-qq/issues)（先翻一下有没有重复）
-- **提代码**：[fork → PR](https://github.com/aureth-labs/dsh-aurabot-qq/pulls)；修 bug 尽量带回归测试；模块请提给 [模块仓库](https://github.com/aureth-labs/dsh-aurabot-qq-mods)
+- **报 bug / 提需求**：[新建 issue](https://github.com/cola0405/dsh-aurabot-qq-cola/issues)（先翻一下有没有重复）
+- **提代码**：[fork → PR](https://github.com/cola0405/dsh-aurabot-qq-cola/pulls)；修 bug 尽量带回归测试；模块请提给 [模块仓库](https://github.com/aureth-labs/dsh-aurabot-qq-mods)
 - **写模块**：先从 [教程](docs/MODULE-TUTORIAL.md) 开始
 - 贡献者名单见版本说明和 PR 记录 💙
 
@@ -236,10 +236,10 @@ QQ 交流群：安装踩坑、用法讨论、想法都在这（提问尽量带�
 
 ## 📈 Star 趋势
 
-<a href="https://www.star-history.com/?repos=aureth-labs%2Fdsh-aurabot-qq&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=cola0405%2Fdsh-aurabot-qq-cola&type=date&legend=top-left">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=aureth-labs/dsh-aurabot-qq&type=date&theme=dark&legend=top-left" />
-    <img alt="Star 趋势" src="https://api.star-history.com/svg?repos=aureth-labs/dsh-aurabot-qq&type=date&legend=top-left" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=cola0405/dsh-aurabot-qq-cola&type=date&theme=dark&legend=top-left" />
+    <img alt="Star 趋势" src="https://api.star-history.com/svg?repos=cola0405/dsh-aurabot-qq-cola&type=date&legend=top-left" />
   </picture>
 </a>
 

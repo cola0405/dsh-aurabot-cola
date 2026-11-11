@@ -10,7 +10,7 @@
 #    人格通过提示词变量 {{aurabot_persona}} 放在系统提示词最前面（由插件注册，面板切换人格即时生效）。
 - insert:
     - id: aurabot
-      name: dsh-aurabot-qq
+      name: dsh-aurabot-qq-cola
     - id: preset-aurabot-private
       name: '@deepseek-ai/dsh-agent-preset'
       config:

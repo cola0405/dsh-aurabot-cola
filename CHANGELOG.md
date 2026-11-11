@@ -2,6 +2,7 @@
 
 ## 1.3.0
 
+- 项目改名为 **`dsh-aurabot-qq-cola`**（包名、插件条目名、面板客户端模块 id、仓库地址一并改）。已经装过旧名的，把 profile 依赖换成 `github:cola0405/dsh-aurabot-qq-cola` 重装一次即可，配置和记忆都在 `~/.dsh/plugins-data/aurabot`，不受影响。
 - 新增一种接入方式：**QQ 官方机器人**（bot.q.qq.com / api-v2）。在「系统 → 连接」里除了 SnowLuma / 已有 OneBot，还能选「接 QQ 官方机器人」——手机 QQ 扫一下二维码，选一个已有机器人或当场新建，AppID / AppSecret 自动填好并连上，全程不用在电脑上挂 QQ 客户端。细节：
   - 「扫码连接」排第一（推荐），「手动填 AppID」排第二：扫码那条路官方会连扫码人的 openid 一起给回来，所以**扫码的号自动就是主人**；手填那条才需要用配对码认主人。
   - 官方机器人只有 openid、没有 QQ 号；白名单也填 openid，可从「最近来过的会话」一键加入。
