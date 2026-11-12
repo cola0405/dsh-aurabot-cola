@@ -1028,7 +1028,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       return h(Choices, { value: draft.gateway || 'snowluma', onChange: (v) => setDraft(setPath(draft, 'gateway', v)), options: [
         { value: 'snowluma', label: '用 SnowLuma（Windows，推荐）', desc: '插件帮你启动、接入机器人号、断线重连' },
         { value: 'onebot', label: '接我已有的 OneBot 机器人', desc: 'NapCat、LLOneBot、Lagrange、Docker 里的 SnowLuma 等任何 OneBot v11 实现；Linux / Docker 部署选这个' },
-        { value: 'qqbot', label: '接 QQ 官方机器人', desc: 'QQ 开放平台（q.qq.com）发的 AppID / AppSecret，走官方 OpenAPI。合规、不怕封号，但只有 openid、被 @ 才收得到群消息、被动回复有时效' },
+        { value: 'qqbot', label: '接 QQ 官方机器人', desc: 'QQ 开放平台（q.qq.com）发的 AppID / AppSecret，走官方的 API，合规、不怕封号，但只有 openid、被 @ 才收得到群消息、被动回复有时效' },
       ] })
     }
 
