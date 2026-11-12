@@ -1,5 +1,9 @@
 # 更新记录
 
+## 1.3.1
+
+- 「系统 → 连接」里「接 QQ 官方机器人」的说明文案调整：`走官方 OpenAPI` 改成 `走官方的 API`，和旁边「合规、不怕封号」连着读更顺，也不用让用户猜 OpenAPI 是什么。只改文案，连接逻辑没动。
+
 ## 1.3.0
 
 - 项目改名为 **`dsh-aurabot-cola`**：包名、插件条目名、面板客户端模块 id 一并改，GitHub 仓库也改成 `cola0405/dsh-aurabot-cola`（旧地址自动跳转）。已经装过上游原版的，把 profile 依赖换成 `github:cola0405/dsh-aurabot-cola` 重装一次即可，配置和记忆都在 `~/.dsh/plugins-data/aurabot`，不受影响。
