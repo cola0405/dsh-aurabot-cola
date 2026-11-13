@@ -4898,24 +4898,37 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       }, [running])
       const call = (p, body) => fetch(API + p, { method: 'POST', headers: { 'x-aurabot-backup': '1', 'content-type': 'application/json' }, body: JSON.stringify(body || {}) }).then((r) => r.json())
       const after = (r) => { toast(r.ok ? (r.message || ('备份已导入（' + r.files + ' 个文件），重启 DSH 后换上')) : r.message, r.ok ? 'ok' : 'err'); load() }
+      // 旧包 / 会把能连上 QQ 的那套配置换掉：先把要丢的东西一条条讲清楚，确认了再带 force 来一次
+      const apply = async (r) => {
+        if (r && r.needConfirm && (r.warnings || []).length) {
+          const lines = r.warnings.map((w) => '· ' + w).join('\n')
+          if (!confirm('这个备份和现在的状态对不上：\n\n' + lines + '\n\n还是要恢复吗？原来的文件会留在 backups 里，恢复后可以再改回来。')) { load(); return }
+          if (r.file) {
+            setBusy(true)
+            try { after(await call('/backup/restore-path', { path: r.file, force: true })) } finally { setBusy(false) }
+            return
+          }
+        }
+        after(r)
+      }
       const upload = async (file) => {
         if (!file) return
         if (!confirm('导入「' + file.name + '」？\n\n重启 DSH 后，这台电脑上的配置、记忆、人设等会被备份里的内容替换，原来的文件留在 backups 文件夹。')) return
         setBusy(true)
-        try { after(await fetch(API + '/backup/upload', { method: 'POST', headers: { 'x-aurabot-backup': '1' }, body: file }).then((r) => r.json())) } catch (e) { toast(e.message) } finally { setBusy(false) }
+        try { await apply(await fetch(API + '/backup/upload', { method: 'POST', headers: { 'x-aurabot-backup': '1' }, body: file }).then((r) => r.json())) } catch (e) { toast(e.message) } finally { setBusy(false) }
       }
       const size = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.ceil(n / 1024) + ' KB')
       const job = s && s.job
       return h('div', { className: 'ab-grid' },
         h(Card, { title: '备份', desc: '把配置、记忆、人设、表情、模块和ta的数据打成一个文件，放到新电脑上恢复。' },
-          h('div', { className: 'ab-note warn', style: { marginBottom: 10 } }, '备份文件里有账号凭证和聊天记录，别发给别人，也别传到公开的地方。'),
+          h('div', { className: 'ab-note warn', style: { marginBottom: 10 } }, '备份文件里有账号凭证和聊天记录 —— QQ 官方机器人的 AppSecret 是明文存进去的，别发给别人，也别传到公开的地方。'),
           h('div', { className: 'ab-flex' },
             h(Btn, { small: true, kind: 'primary', disabled: running, onClick: async () => { after(await call('/backup/create')) } }, running ? '打包中 ' + (job.done || 0) + ' / ' + (job.total || '…') : '立即备份'),
             h(Btn, { small: true, onClick: async () => { const r = await call('/backup/open'); if (!r.ok) toast(r.message) } }, '打开备份文件夹')),
           job && job.error ? h('div', { className: 'ab-note err', style: { marginTop: 10 } }, '备份失败：' + job.error) : null,
           job && job.result ? h('div', { className: 'ab-small ab-muted', style: { marginTop: 10 } }, '刚生成：' + job.result.name + '，' + job.result.files + ' 个文件' + (job.result.skipped.length ? '；有 ' + job.result.skipped.length + ' 个文件没能带上：' + job.result.skipped.slice(0, 5).join('、') : '')) : null,
           s && s.list.length ? h('div', { style: { marginTop: 10 } }, s.list.slice(0, 8).map((b) => h('div', { key: b.name, className: 'ab-small' }, b.name + ' · ' + size(b.bytes)))) : null),
-        h(Card, { title: '恢复', desc: '在新电脑上先装好 DSH 和 Aurabot，再把备份拖进来。重启 DSH 后自动换上设置和数据、重新下载市场模块、放回 QQ 会话，原来的文件留在 backups 文件夹。' },
+        h(Card, { title: '恢复', desc: '在新电脑上先装好 DSH 和 Aurabot，再把备份拖进来。重启 DSH 后自动换上设置和数据、重新下载市场模块、放回 QQ 会话，原来的文件留在 backups 文件夹。包里那份配置连不上 QQ 时，会保留现在这套连接（网关、机器人号、主人、密钥），不会被旧包清掉；备份比现在的配置旧、或者会换掉能用的连接时，会先把要丢的东西列出来让你确认。' },
           s && s.modules && s.modules.length ? h('div', { className: 'ab-small ab-muted', style: { marginBottom: 8 } }, '还没装回来的模块：' + s.modules.join('、') + '（下次启动再试）') : null,
           s && s.pending ? h('div', { className: 'ab-note warn' }, '已导入 ' + s.pending.files + ' 个文件（备份于 ' + String(s.pending.createdAt || '').slice(0, 16).replace('T', ' ') + '），重启 DSH 后换上。',
             h('div', { style: { marginTop: 8 } }, h(Btn, { small: true, kind: 'ghost', onClick: async () => { after(await call('/backup/cancel')) } }, '取消恢复'))) : [
@@ -4925,7 +4938,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
               onDrop: (e) => { e.preventDefault(); setOver(false); upload(e.dataTransfer.files[0]) } }, busy ? '导入中…' : '把备份 zip 拖到这里，或点这里选择文件'),
             h('div', { key: 'p', className: 'ab-flex', style: { marginTop: 10 } },
               h('input', { className: 'ab-input', placeholder: '文件很大时填完整路径，如 D:\\aurabot-backup.zip', value: path, onChange: (e) => setPath(e.target.value) }),
-              h(Btn, { small: true, disabled: busy || !path.trim(), onClick: async () => { if (!confirm('导入这个备份？重启 DSH 后会替换这台电脑上的数据。')) return; setBusy(true); try { after(await call('/backup/restore-path', { path })) } finally { setBusy(false) } } }, '导入')),
+              h(Btn, { small: true, disabled: busy || !path.trim(), onClick: async () => { if (!confirm('导入这个备份？重启 DSH 后会替换这台电脑上的数据。')) return; setBusy(true); try { await apply(await call('/backup/restore-path', { path })) } finally { setBusy(false) } } }, '导入')),
           ]),
         h(Card, { title: '不会带过去的', desc: '这些要在新电脑上重新弄一下。' },
           h('div', { className: 'ab-small ab-muted' }, 'DSH 自己的设置和模型密钥、QQ 网关 SnowLuma 的登录、QQ 工作区以外的 DSH 会话；抖音和小黑盒的浏览器登录要重新扫码；日志和缓存不备份；翻唱环境和桌宠的 Electron 要重新安装；数据目录以外的路径（比如 ffmpeg、本地图片文件夹）在新电脑上要重新填。')))
@@ -5158,6 +5171,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       const toastTimer = useRef(null)
       const dirtyRef = useRef(false)
       const saveRef = useRef(null)
+      const restoredRef = useRef(0)
       // kind：ok / err / 不填 = 普通
       const toast = (m, kind) => {
         const text = String(m || '')
@@ -5171,6 +5185,14 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
         if (!r || r.ok === false) { setErr(r && r.message ? r.message : '读不到插件状态'); return }
         setErr('')
         setSt(r)
+        // 这次启动换过备份：手里的 draft 还是恢复前的，一旦保存就会把刚恢复的配置又盖回去，
+        // 所以不管有没有未保存的改动都直接丢掉重来（这就是旧草稿把 ownerQQ 写死的那个坑）。
+        if (r.restoredAt && r.restoredAt !== restoredRef.current) {
+          restoredRef.current = r.restoredAt
+          setDraft(clone(r.config))
+          toast('已从备份恢复，页面刷新成备份里的内容了', 'ok')
+          return
+        }
         if (!dirtyRef.current) setDraft(clone(r.config))
       }, [])
       useEffect(() => { reload(); const t = setInterval(reload, 5000); return () => clearInterval(t) }, [reload])

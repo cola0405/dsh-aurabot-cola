@@ -35,7 +35,7 @@ import { createModules, API_VERSION } from './core/modules.js'
 import { createCommunity } from './core/community.js'
 import { createApprovalRelay } from './security/approval.js'
 import { captureSystemPrompt } from './security/leak-guard.js'
-import { applyPendingRestore, cancelRestore, createBackup, listBackups, pendingModules, pendingRestore, saveUpload, setPendingModules, stageRestore } from './core/backup.js'
+import { applyPendingRestore, cancelRestore, createBackup, lastRestoreInfo, listBackups, pendingModules, pendingRestore, saveUpload, setPendingModules, stageRestore } from './core/backup.js'
 import { cleanText } from './core/text.js'
 import { createBridge } from './core/bridge.js'
 import { createDangerGuard, safeOwnedSession } from './security/danger.js'
@@ -64,9 +64,16 @@ export function apply(ctx) {
   const logger = createLogger({ dsh: ctx })
   const log = logger.child('core')
   // 恢复备份必须在读配置之前：读完配置后内存里的旧状态会写回去
+  let restoredAt = 0
   try {
     const restored = applyPendingRestore()
-    if (restored) log.info(`已恢复备份：${restored} 个文件，原来的文件在 backups/ 里留了底`)
+    if (restored) {
+      restoredAt = Date.now()
+      const info = lastRestoreInfo()
+      log.info(`已恢复备份：${restored} 个文件，原来的文件在 backups/ 里留了底`)
+      // 包里连接不全时，用的还是恢复前那套网关/号/密钥——说明白，别让人以为恢复把凭据弄丢了
+      if (info?.keptConnection) log.info(`恢复时保留了现在的 QQ 连接（${info.keptConnection}）：备份里那份连不上`)
+    }
   } catch (error) { log.error('恢复备份失败：', error.message) }
   let cfg = loadConfig()
   let mods = null
@@ -821,6 +828,8 @@ export function apply(ctx) {
       ok: true,
       version: VERSION,
       apiVersion: API_VERSION,
+      // 这次启动换过备份：面板据此丢掉手里的旧草稿，别让它把刚恢复的配置又写回去
+      restoredAt,
       config: publicConfig(cfg),
       onebot: { state: onebotState, login, endpoint: { httpUrl: endpoint().httpUrl, wsUrl: endpoint().wsUrl }, provider: cfg.gateway === 'qqbot' ? 'qqbot' : cfg.gateway === 'onebot' ? 'onebot' : 'snowluma', problem: onebotState === 'connected' && loginOk ? '' : await connectionProblem() },
       qqbot: {
@@ -1579,12 +1588,18 @@ export function apply(ctx) {
   route('/backup/upload', backupAction(async (req) => {
     const buf = await readRaw(req, 2 * 1024 * 1024 * 1024 - 1)
     if (!buf.length) return { ok: false, message: '文件是空的' }
-    try { return await stageRestore(await saveUpload(buf)) } catch (error) { return { ok: false, message: error.message } }
+    const force = req.headers?.['x-aurabot-restore-force'] === '1'
+    try {
+      // 先落盘再校验：确认了要恢复时面板可以直接带路径再来一次，不用重传上百兆
+      const saved = await saveUpload(buf)
+      return await stageRestore(saved, { force })
+    } catch (error) { return { ok: false, message: error.message } }
   }))
   route('/backup/restore-path', backupAction(async (req) => {
-    const path = String((await readBody(req)).path || '').trim().replace(/^"|"$/g, '')
+    const body = await readBody(req)
+    const path = String(body.path || '').trim().replace(/^"|"$/g, '')
     if (!path) return { ok: false, message: '填备份文件的完整路径' }
-    try { return await stageRestore(path) } catch (error) { return { ok: false, message: error.message } }
+    try { return await stageRestore(path, { force: body.force === true }) } catch (error) { return { ok: false, message: error.message } }
   }))
   route('/backup/cancel', backupAction(async () => { cancelRestore(); return { ok: true, message: '取消了' } }))
   route('/local/status', async () => ({ ok: true, dir: local.dir(), list: local.status() }))
