@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameS
 import { crc32, deflateRawSync, inflateRawSync } from 'node:zlib'
 import { homedir } from 'node:os'
 import { dirname, join, parse, relative, resolve, sep } from 'node:path'
-import { dataDir, dshHome } from './store.js'
+import { dataDir, dshHome, readJson } from './store.js'
 import { captureMemoryBackup, MEMORY_FILES } from '../features/memory-store.js'
 
 const MANIFEST = 'aurabot-backup.json'
@@ -31,6 +31,56 @@ const sessionStage = () => dataDir('.restore-sessions')
 const pendingFile = () => dataDir('.restore-pending.json')
 const modulesFile = () => dataDir('.restore-modules.json')
 const SOURCE_FILE = '.aurabot-source.json'
+
+// 恢复时只「保」不「换」的字段：包里连不上 QQ 的时候，这几个整套留在现在这份配置上。
+// 不保的是人格、记忆、模块、表情这些——那是恢复本来就要换的东西。
+const CONNECTION_KEYS = ['gateway', 'botQQ', 'ownerQQ', 'qqbot', 'snowluma']
+
+const GATEWAY_NAME = { snowluma: 'SnowLuma', onebot: '已有的 OneBot 服务', qqbot: 'QQ 官方机器人' }
+
+/** 这份配置里的连接真的能连上 QQ 吗？返回能连的那个网关名，连不上返回空串。 */
+export function usableConnection(cfg) {
+  if (!cfg) return ''
+  const sn = cfg.snowluma || {}
+  const qb = cfg.qqbot || {}
+  if (cfg.gateway === 'qqbot') return qb.appId && qb.appSecret ? 'qqbot' : ''
+  if (cfg.gateway === 'onebot') return sn.wsUrl || sn.httpUrl ? 'onebot' : ''
+  return cfg.botQQ && cfg.ownerQQ ? 'snowluma' : ''
+}
+
+function stampOf(value) {
+  const t = typeof value === 'number' ? value : Date.parse(String(value || ''))
+  return Number.isFinite(t) ? t : 0
+}
+
+function fmtTime(t) {
+  try { return new Date(t).toISOString().slice(0, 16).replace('T', ' ') } catch (error) { return '?' }
+}
+
+/**
+ * 这个包盖上去会丢什么。空数组 = 直接恢复；非空 = 先让用户确认。
+ *
+ * 起因：旧包（更早打的、没有 QQ 官方机器人的那份）会把当时正确的连接整个盖掉——
+ * gateway 退回 snowluma、ownerQQ 变空、AppSecret 没了，之后所有消息都被当陌生人丢掉。
+ */
+function restoreWarnings(incoming, current, manifest, currentAt) {
+  const out = []
+  if (!incoming) return out
+  const canIn = usableConnection(incoming)
+  const canCur = usableConnection(current)
+  // 新机器上刚装好就去恢复：现在的配置本来就连不上，这是正常用法，不该拦
+  if (canCur) {
+    const inAt = stampOf(manifest?.createdAt)
+    if (inAt && currentAt && inAt < currentAt - 60_000) out.push(`这个备份是 ${fmtTime(inAt)} 打的，比现在这份配置（${fmtTime(currentAt)}）还旧`)
+    if (!canIn) out.push(`备份里没有能连上 QQ 的${GATEWAY_NAME[canCur]}配置，恢复后会连不上`)
+    else if (canIn !== canCur) out.push(`备份用的是${GATEWAY_NAME[canIn]}，现在用的是${GATEWAY_NAME[canCur]}`)
+    const cur = current || {}
+    if (cur.ownerQQ && !incoming.ownerQQ) out.push('备份里没有主人绑定（ownerQQ），群管和主人权限都得重来')
+    if (cur.qqbot?.appSecret && !incoming.qqbot?.appSecret) out.push('备份里没有 QQ 官方机器人的 AppSecret')
+    if (cur.botQQ && !incoming.botQQ) out.push('备份里没有机器人号')
+  }
+  return out
+}
 
 /** DSH 存会话的目录名：工作区路径里的分隔符换成 -，其余特殊字符写成 ~十六进制。 */
 export function sessionDirName(cwd) {
@@ -216,11 +266,20 @@ async function readEntry(fh, e) {
   return data
 }
 
-/** 校验备份并解到 .restore/，下次启动才换上去。 */
-export async function stageRestore(path) {
+/**
+ * 校验备份并解到 .restore/，下次启动才换上去。
+ *
+ * force=false 时，如果这个包明显比现在的状态旧 / 会把能用的 QQ 连接换掉，就先不落地：
+ * 返回 needConfirm + warnings，由面板把这些讲给用户听，确认后再带 force 来一次。
+ */
+export async function stageRestore(path, { force = false } = {}) {
   const size = (await stat(path)).size
   const fh = await open(path, 'r')
   const stage = stageDir()
+  const clean = async () => {
+    await rm(stage, { recursive: true, force: true }).catch(() => {})
+    await rm(sessionStage(), { recursive: true, force: true }).catch(() => {})
+  }
   try {
     const entries = await readEntries(fh, size)
     const head = entries.find((e) => e.name === MANIFEST)
@@ -245,11 +304,21 @@ export async function stageRestore(path) {
     }
     if (!existsSync(join(stage, 'config.json'))) throw new Error('备份里没有配置文件')
     const { createdAt, version, dataDir: oldData, home, workspaceDir, platform, market = [], sessions = 0 } = manifest
+    // 先看看包里那份配置会不会把现在能用的连接盖掉（旧包最容易出这个事）
+    let incoming = null
+    try { incoming = JSON.parse(readFileSync(join(stage, 'config.json'), 'utf8')) } catch (error) { throw new Error('备份里的 config.json 读不出来，可能坏掉了') }
+    const currentFile = join(dataDir(), 'config.json')
+    const current = readJson(currentFile, null)
+    const currentAt = existsSync(currentFile) ? statSync(currentFile).mtimeMs : 0
+    const warnings = restoreWarnings(incoming, current, manifest, currentAt)
+    if (warnings.length && !force) {
+      await clean()
+      return { ok: false, needConfirm: true, warnings, file: path, files, createdAt, version: version || '', platform, message: '这个备份和现在的状态对不上，先确认一下' }
+    }
     await writeFile(pendingFile(), JSON.stringify({ at: Date.now(), files, createdAt, version, dataDir: oldData, home, workspaceDir, platform, market, sessions }, null, 2))
-    return { ok: true, files, createdAt, version, platform, market, sessions, skipped: manifest.skipped || [] }
+    return { ok: true, files, createdAt, version, platform, market, sessions, warnings, skipped: manifest.skipped || [] }
   } catch (error) {
-    await rm(stage, { recursive: true, force: true }).catch(() => {})
-    await rm(sessionStage(), { recursive: true, force: true }).catch(() => {})
+    await clean()
     throw error
   } finally {
     await fh.close()
@@ -273,6 +342,41 @@ function move(from, to) {
   }
 }
 
+/** 最近一次恢复的结果，给宿主写日志、给面板提示用。 */
+let lastRestore = null
+export function lastRestoreInfo() { return lastRestore }
+
+/**
+ * 恢复时保住现在的 QQ 连接：包里连不上、现在能连上，就别把能用的换成不能用的。
+ * 只动 CONNECTION_KEYS，人格 / 记忆 / 模块照常换成包里的。返回保下来的字段名。
+ */
+function keepConnection(root, before) {
+  if (!before || !usableConnection(before)) return ''
+  const file = join(root, 'config.json')
+  if (!existsSync(file)) return ''
+  let after = null
+  try { after = JSON.parse(readFileSync(file, 'utf8')) } catch (error) { return '' }
+  const kept = []
+  const take = (key) => { after[key] = before[key]; kept.push(key) }
+  if (!usableConnection(after)) {
+    // 包里那份根本连不上：整套连接留在现在这份上（网关、号、密钥、主人一起）
+    for (const key of CONNECTION_KEYS) take(key)
+  } else if (after.gateway === before.gateway) {
+    // 同一个网关：只补包里缺的那几块（AppSecret 被打码导出的包、没绑主人的包都很常见）
+    if (!after.botQQ && before.botQQ) take('botQQ')
+    if (!after.ownerQQ && before.ownerQQ) take('ownerQQ')
+    const sameApp = !after.qqbot?.appId || after.qqbot.appId === before.qqbot?.appId
+    if (after.gateway === 'qqbot' && sameApp && !after.qqbot?.appSecret && before.qqbot?.appSecret) {
+      after.qqbot = { ...after.qqbot, appSecret: before.qqbot.appSecret }
+      kept.push('qqbot.appSecret')
+    }
+  }
+  if (!kept.length) return ''
+  if (before.setupDone) after.setupDone = true
+  writeFileSync(file, JSON.stringify(after, null, 2))
+  return kept.join('、')
+}
+
 /** 启动时、读配置之前调用：把暂存的备份换上去。返回换上的文件数，没有待恢复返回 0。 */
 export function applyPendingRestore(now = Date.now()) {
   const pending = pendingFile()
@@ -280,6 +384,8 @@ export function applyPendingRestore(now = Date.now()) {
   const info = JSON.parse(readFileSync(pending, 'utf8'))
   const stage = stageDir()
   const root = dataDir()
+  // 换之前先记下现在的连接：恢复完拿它补回被包里清掉的网关 / 号 / 密钥
+  const before = readJson(join(root, 'config.json'), null)
   const keep = join(backupsDir(), `pre-restore-${now}`)
   const files = listFiles(stage)
   // 整套记忆一起替换：恢复旧 JSON 时不能让现有 SQLite 遮住它；恢复新库时也
@@ -303,9 +409,12 @@ export function applyPendingRestore(now = Date.now()) {
     writeFileSync(config, readFileSync(config, 'utf8').replaceAll(esc(info.dataDir), esc(root)))
   }
   restoreSessions(info, config)
+  // 会话放回之后再做一次：restoreSessions 会重写 config.json，放在它前面会被盖掉
+  const keptConnection = keepConnection(root, before)
   if (info.market?.length) writeFileSync(modulesFile(), JSON.stringify(info.market))
   rmSync(stage, { recursive: true, force: true })
   rmSync(pending, { force: true })
+  lastRestore = { at: now, files: files.length, keptConnection, from: info.createdAt || '' }
   return files.length
 }
 
